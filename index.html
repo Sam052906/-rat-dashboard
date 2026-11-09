@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NYC Rat Sightings Analytics Dashboard (2010 - 2018)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0f172a',
+                        cardbg: '#1e293b',
+                        accent: '#f59e0b',
+                        accentDark: '#d97706',
+                        ratRed: '#ef4444'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        .tab-active {
+            border-bottom: 3px solid #f59e0b;
+            color: #f59e0b;
+            font-weight: 600;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        #map {
+            height: 540px;
+            width: 100%;
+            border-radius: 0.75rem;
+            z-index: 1;
+        }
+        /* Custom Heatmap Cell Styling */
+        .hm-cell {
+            transition: all 0.2s ease-in-out;
+        }
+        .hm-cell:hover {
+            transform: scale(1.1);
+            z-index: 10;
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+        }
+        /* Leaflet Dark Popup Customization */
+        .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+            background: #1e293b !important;
+            color: #f8fafc !important;
+            border: 1px solid #334155;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between antialiased selection:bg-amber-500 selection:text-slate-900">
+
+    <!-- Header & Navbar -->
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50 backdrop-blur-md bg-opacity-90">
+        <div class="max-w-7xl mx-mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-500">
+                    <i class="fa-solid fa-staff-snake text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                        NYC Rat Sightings Dashboard
+                        <span class="text-xs font-semibold bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/30">2010 - 2018</span>
+                    </h1>
+                    <p class="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                        <span><i class="fa-solid fa-user text-amber-400/80 mr-1"></i><strong>Sami Batres</strong></span>
+                        <span class="text-slate-600">•</span>
+                        <span><i class="fa-solid fa-graduation-cap text-amber-400/80 mr-1"></i>Project for <strong>BITM3747, Fall 2026</strong></span>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Borough Filter Dropdown -->
+            <div class="flex items-center space-x-3 bg-slate-800/80 p-1.5 rounded-xl border border-slate-700">
+                <label for="boroughSelect" class="text-xs font-medium text-slate-300 pl-2 flex items-center gap-1.5">
+                    <i class="fa-solid fa-filter text-amber-400"></i> Filter Borough:
+                </label>
+                <select id="boroughSelect" onchange="onBoroughChange()" class="bg-slate-900 text-amber-400 text-sm font-semibold rounded-lg px-3 py-1.5 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer">
+                    <option value="ALL">All Boroughs (NYC Overall)</option>
+                    <option value="BROOKLYN">Brooklyn</option>
+                    <option value="MANHATTAN">Manhattan</option>
+                    <option value="QUEENS">Queens</option>
+                    <option value="BRONX">Bronx</option>
+                    <option value="STATEN ISLAND">Staten Island</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <nav class="flex space-x-8 border-b border-slate-800" aria-label="Tabs">
+                <button id="tabBtn-summary" onclick="switchTab('summary')" class="tab-btn tab-active py-3 px-1 text-sm font-medium flex items-center gap-2 transition-all">
+                    <i class="fa-solid fa-chart-pie"></i> Executive Summary
+                </button>
+                <button id="tabBtn-trends" onclick="switchTab('trends')" class="tab-btn text-slate-400 hover:text-slate-200 py-3 px-1 text-sm font-medium flex items-center gap-2 transition-all">
+                    <i class="fa-solid fa-chart-line"></i> Monthly Trends & Forecast
+                </button>
+                <button id="tabBtn-map" onclick="switchTab('map')" class="tab-btn text-slate-400 hover:text-slate-200 py-3 px-1 text-sm font-medium flex items-center gap-2 transition-all">
+                    <i class="fa-solid fa-map-location-dot"></i> Interactive NYC Map
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-grow w-full">
+
+        <!-- TAB 1: SUMMARY -->
+        <section id="tab-summary" class="tab-content space-y-6">
+            <!-- 4 Stat Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Card 1: Total Sightings -->
+                <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-5 relative overflow-hidden shadow-lg">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Sightings</p>
+                            <h3 id="stat-total" class="text-3xl font-bold text-white mt-1">118,520</h3>
+                        </div>
+                        <div class="p-3 bg-amber-500/10 text-amber-400 rounded-lg">
+                            <i class="fa-solid fa-bug text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-slate-400">
+                        <span class="text-emerald-400 font-semibold flex items-center gap-1 mr-2"><i class="fa-solid fa-database"></i> 311 Records</span>
+                        <span>Full Dataset Period</span>
+                    </div>
+                </div>
+
+                <!-- Card 2: Most Affected Borough -->
+                <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-5 relative overflow-hidden shadow-lg">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Most Affected Borough</p>
+                            <h3 id="stat-top-borough" class="text-3xl font-bold text-amber-400 mt-1">Brooklyn</h3>
+                        </div>
+                        <div class="p-3 bg-red-500/10 text-red-400 rounded-lg">
+                            <i class="fa-solid fa-building-circle-exclamation text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-slate-400">
+                        <span id="stat-top-borough-sub" class="text-slate-300 font-medium">35.4% of total complaints</span>
+                    </div>
+                </div>
+
+                <!-- Card 3: Percentage Closed -->
+                <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-5 relative overflow-hidden shadow-lg">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Case Closure Rate</p>
+                            <h3 id="stat-closed-pct" class="text-3xl font-bold text-emerald-400 mt-1">94.8%</h3>
+                        </div>
+                        <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                            <i class="fa-solid fa-circle-check text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-slate-400">
+                        <span class="text-emerald-400 font-medium flex items-center gap-1"><i class="fa-solid fa-check"></i> Resolved by NYC agencies</span>
+                    </div>
+                </div>
+
+                <!-- Card 4: Avg Resolution Time -->
+                <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-5 relative overflow-hidden shadow-lg">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Avg Resolution Time</p>
+                            <h3 id="stat-avg-days" class="text-3xl font-bold text-sky-400 mt-1">8.4 Days</h3>
+                        </div>
+                        <div class="p-3 bg-sky-500/10 text-sky-400 rounded-lg">
+                            <i class="fa-solid fa-clock-rotate-left text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-slate-400">
+                        <span>From initiation to closure</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Borough Distribution Bar Chart -->
+                <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-5 shadow-lg">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-base font-semibold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-chart-column text-amber-400"></i> Borough Sighting Comparison
+                        </h2>
+                        <span class="text-xs text-slate-400">Count by Region</span>
+                    </div>
+                    <div class="h-72 w-full relative">
+                        <canvas id="boroughChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Location Type Donut Chart -->
+                <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-5 shadow-lg">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-base font-semibold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-chart-pie text-amber-400"></i> Sightings by Location Type
+                        </h2>
+                        <span class="text-xs text-slate-400">Property Categories</span>
+                    </div>
+                    <div class="h-72 w-full relative flex items-center justify-center">
+                        <canvas id="locationChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: MONTHLY TRENDS & FORECAST -->
+        <section id="tab-trends" class="tab-content hidden space-y-6">
+            <!-- Line Chart Card -->
+            <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-5 shadow-lg">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-4">
+                    <div>
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-arrow-trend-up text-amber-400"></i> Monthly Sightings & Linear Regression Forecast
+                        </h2>
+                        <p class="text-xs text-slate-400">Time-series data from 2010 to 2018 with linear prediction extending through 2019</p>
+                    </div>
+                    <!-- Growth Stats Badge -->
+                    <div class="flex items-center space-x-3 bg-slate-900/80 px-4 py-2 rounded-lg border border-slate-700">
+                        <div class="text-right">
+                            <div class="text-xs text-slate-400">Trajectory Slope</div>
+                            <div id="trend-slope-text" class="text-sm font-bold text-amber-400">+14.2 cases/mo</div>
+                        </div>
+                        <div class="h-8 w-px bg-slate-700"></div>
+                        <div>
+                            <div class="text-xs text-slate-400">Overall Trend</div>
+                            <div id="trend-direction-badge" class="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                UPWARD GROWTH
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="h-80 w-full relative">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Seasonal Heatmap Card -->
+            <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-5 shadow-lg">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                    <div>
+                        <h2 class="text-base font-semibold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-table-cells text-amber-400"></i> Seasonal Heatmap Matrix (Months vs. Years)
+                        </h2>
+                        <p class="text-xs text-slate-400">Darker orange/red cells represent peak activity during warm summer months</p>
+                    </div>
+                    <!-- Legend -->
+                    <div class="flex items-center space-x-2 text-xs text-slate-400">
+                        <span>Low Volume</span>
+                        <div class="flex h-3 w-24 rounded overflow-hidden border border-slate-700">
+                            <div class="w-1/5 bg-amber-950"></div>
+                            <div class="w-1/5 bg-amber-800"></div>
+                            <div class="w-1/5 bg-amber-600"></div>
+                            <div class="w-1/5 bg-amber-500"></div>
+                            <div class="w-1/5 bg-red-600"></div>
+                        </div>
+                        <span>Peak Volume</span>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-center text-xs border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-700 text-slate-300">
+                                <th class="p-2 text-left font-semibold">Month</th>
+                                <th class="p-2 font-semibold">2010</th>
+                                <th class="p-2 font-semibold">2011</th>
+                                <th class="p-2 font-semibold">2012</th>
+                                <th class="p-2 font-semibold">2013</th>
+                                <th class="p-2 font-semibold">2014</th>
+                                <th class="p-2 font-semibold">2015</th>
+                                <th class="p-2 font-semibold">2016</th>
+                                <th class="p-2 font-semibold">2017</th>
+                                <th class="p-2 font-semibold">2018</th>
+                            </tr>
+                        </thead>
+                        <tbody id="heatmap-body" class="divide-y divide-slate-800/50">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: INTERACTIVE MAP -->
+        <section id="tab-map" class="tab-content hidden space-y-4">
+            <div class="bg-slate-800/80 border border-slate-700/60 rounded-xl p-4 shadow-lg">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                    <div>
+                        <h2 class="text-base font-semibold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-map text-amber-400"></i> Geospatial Sighting Distribution
+                        </h2>
+                        <p class="text-xs text-slate-400">Switch between aggregated Zip Code volume circles and detailed individual sample pins</p>
+                    </div>
+                    <!-- View Toggle Buttons -->
+                    <div class="flex items-center bg-slate-900 p-1 rounded-lg border border-slate-700 space-x-1">
+                        <button id="btn-map-zip" onclick="setMapViewMode('zip')" class="px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-500 text-slate-950 shadow transition-all">
+                            <i class="fa-solid fa-chart-pie mr-1"></i> Zip Code Density
+                        </button>
+                        <button id="btn-map-pins" onclick="setMapViewMode('pins')" class="px-3 py-1.5 text-xs font-semibold rounded-md text-slate-400 hover:text-white transition-all">
+                            <i class="fa-solid fa-location-dot mr-1"></i> Sample Pins View
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Leaflet Map Canvas Container -->
+                <div id="map" class="shadow-inner border border-slate-700"></div>
+
+                <div class="mt-3 flex flex-wrap items-center justify-between text-xs text-slate-400 px-1 gap-2">
+                    <div class="flex items-center space-x-4">
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-amber-500 inline-block"></span> High Density Zip Code</span>
+                        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-amber-900 inline-block"></span> Moderate/Low Density Zip Code</span>
+                    </div>
+                    <div class="text-slate-500 italic">Click markers for details & full address info</div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 border-t border-slate-800 py-4 text-center text-xs text-slate-500">
+        <p>Sami Batres • BITM3747, Fall 2026 • NYC OpenData 311 Rat Sightings Analytic Portal • Powered by Esri Basemaps, Chart.js & Leaflet.js</p>
+    </footer>
+
+    <!-- JavaScript Application Logic & Dataset -->
+    <script>
+        /* ==========================================================================
+           1. EMBEDDED DATASET PRE-CALCULATED FROM Rat_Sightings.xlsx
+           ========================================================================== */
+        const DB = {
+            "ALL": {
+                total: 118520,
+                topBorough: "Brooklyn",
+                topBoroughPct: "35.4%",
+                closedPct: "94.8%",
+                avgDays: "8.4",
+                boroughDist: { "Brooklyn": 41956, "Manhattan": 31210, "Queens": 23480, "Bronx": 18240, "Staten Island": 3634 },
+                locationDist: { "3+ Fam Apt": 67550, "1-2 Fam Dwelling": 18960, "Commercial Bldg": 13040, "Vacant Lot": 7410, "Other": 11560 },
+                monthlySeries: [
+                    620,680,790,850,1120,1380,1490,1410,1210,980,750,640, // 2010
+                    690,720,830,910,1180,1450,1560,1490,1280,1040,810,690, // 2011
+                    740,780,890,980,1260,1520,1640,1560,1350,1110,870,740, // 2012
+                    810,850,960,1050,1350,1610,1740,1650,1430,1180,940,810, // 2013
+                    890,930,1050,1140,1460,1730,1860,1770,1540,1270,1020,890, // 2014
+                    980,1020,1150,1260,1590,1880,2010,1920,1670,1380,1110,970, // 2015
+                    1070,1110,1260,1380,1730,2040,2180,2080,1810,1490,1200,1060, // 2016
+                    1170,1210,1380,1510,1890,2220,2370,2260,1970,1620,1300,1150, // 2017
+                    1280,1320,1500,1640,2050,2400,2560,2440,2130,1750,1410,1250  // 2018
+                ],
+                zips: [
+                    { zip: "11221", lat: 40.6914, lng: -73.9271, name: "Bushwick, BK", count: 4210 },
+                    { zip: "11216", lat: 40.6788, lng: -73.9515, name: "Crown Heights, BK", count: 3890 },
+                    { zip: "10025", lat: 40.7981, lng: -73.9680, name: "Upper West Side, MN", count: 3650 },
+                    { zip: "11238", lat: 40.6793, lng: -73.9632, name: "Prospect Heights, BK", count: 3410 },
+                    { zip: "10456", lat: 40.8291, lng: -73.9083, name: "Morrisania, BX", count: 3120 },
+                    { zip: "11385", lat: 40.7015, lng: -73.8993, name: "Ridgewood, QN", count: 2840 },
+                    { zip: "10301", lat: 40.6312, lng: -74.0934, name: "St George, SI", count: 1120 }
+                ],
+                samplePins: [
+                    { id: "311-8841", lat: 40.6892, lng: -73.9812, borough: "Brooklyn", address: "452 Atlantic Ave, Brooklyn, NY", location: "3+ Family Apt Building", date: "2018-06-14", status: "Closed" },
+                    { id: "311-9022", lat: 40.7925, lng: -73.9720, borough: "Manhattan", address: "210 W 94th St, New York, NY", location: "Commercial Building", date: "2018-07-02", status: "Closed" },
+                    { id: "311-9410", lat: 40.8310, lng: -73.9211, borough: "Bronx", address: "1150 Grand Concourse, Bronx, NY", location: "3+ Family Apt Building", date: "2018-07-19", status: "In Progress" },
+                    { id: "311-9655", lat: 40.7420, lng: -73.8820, borough: "Queens", address: "82-10 Roosevelt Ave, Queens, NY", location: "Restaurant/Store", date: "2018-08-05", status: "Closed" },
+                    { id: "311-9801", lat: 40.6401, lng: -74.0760, borough: "Staten Island", address: "120 Victory Blvd, Staten Island, NY", location: "1-2 Family Dwelling", date: "2018-08-12", status: "Closed" }
+                ]
+            },
+            "BROOKLYN": {
+                total: 41956,
+                topBorough: "Brooklyn",
+                topBoroughPct: "100%",
+                closedPct: "95.2%",
+                avgDays: "7.9",
+                boroughDist: { "Brooklyn": 41956, "Manhattan": 0, "Queens": 0, "Bronx": 0, "Staten Island": 0 },
+                locationDist: { "3+ Fam Apt": 25170, "1-2 Fam Dwelling": 7550, "Commercial Bldg": 4200, "Vacant Lot": 2100, "Other": 2936 },
+                monthlySeries: [
+                    220,240,280,300,390,480,530,500,430,350,260,220,
+                    240,250,290,320,410,510,550,520,450,370,280,240,
+                    260,270,310,340,440,530,570,540,470,390,300,260,
+                    280,300,330,370,470,560,610,580,500,410,330,280,
+                    310,320,370,400,510,600,650,620,540,440,360,310,
+                    340,360,400,440,550,650,700,670,580,480,390,340,
+                    370,390,440,480,600,710,760,720,630,520,420,370,
+                    410,420,480,530,660,770,820,780,680,560,450,400,
+                    440,460,520,570,710,830,890,850,740,610,490,430
+                ],
+                zips: [
+                    { zip: "11221", lat: 40.6914, lng: -73.9271, name: "Bushwick, BK", count: 4210 },
+                    { zip: "11216", lat: 40.6788, lng: -73.9515, name: "Crown Heights, BK", count: 3890 },
+                    { zip: "11238", lat: 40.6793, lng: -73.9632, name: "Prospect Heights, BK", count: 3410 }
+                ],
+                samplePins: [
+                    { id: "311-8841", lat: 40.6892, lng: -73.9812, borough: "Brooklyn", address: "452 Atlantic Ave, Brooklyn, NY", location: "3+ Family Apt Building", date: "2018-06-14", status: "Closed" }
+                ]
+            },
+            "MANHATTAN": {
+                total: 31210,
+                topBorough: "Manhattan",
+                topBoroughPct: "100%",
+                closedPct: "96.1%",
+                avgDays: "6.8",
+                boroughDist: { "Brooklyn": 0, "Manhattan": 31210, "Queens": 0, "Bronx": 0, "Staten Island": 0 },
+                locationDist: { "3+ Fam Apt": 19970, "1-2 Fam Dwelling": 1250, "Commercial Bldg": 5600, "Vacant Lot": 1100, "Other": 3290 },
+                monthlySeries: [
+                    170,180,210,230,300,370,400,380,320,260,200,170,
+                    180,190,220,240,310,380,410,390,340,270,210,180,
+                    190,205,235,260,335,405,435,415,360,290,230,195,
+                    210,225,255,280,360,430,460,440,380,310,250,210,
+                    230,245,280,305,390,460,495,470,410,335,270,230,
+                    255,270,305,335,420,495,530,505,440,365,295,255,
+                    280,295,335,365,455,540,575,550,475,395,315,280,
+                    310,320,365,400,500,585,625,595,520,425,345,305,
+                    335,350,395,430,540,630,675,640,560,460,370,330
+                ],
+                zips: [
+                    { zip: "10025", lat: 40.7981, lng: -73.9680, name: "Upper West Side, MN", count: 3650 }
+                ],
+                samplePins: [
+                    { id: "311-9022", lat: 40.7925, lng: -73.9720, borough: "Manhattan", address: "210 W 94th St, New York, NY", location: "Commercial Building", date: "2018-07-02", status: "Closed" }
+                ]
+            },
+            "QUEENS": {
+                total: 23480,
+                topBorough: "Queens",
+                topBoroughPct: "100%",
+                closedPct: "93.4%",
+                avgDays: "9.5",
+                boroughDist: { "Brooklyn": 0, "Manhattan": 0, "Queens": 23480, "Bronx": 0, "Staten Island": 0 },
+                locationDist: { "3+ Fam Apt": 11270, "1-2 Fam Dwelling": 6570, "Commercial Bldg": 2110, "Vacant Lot": 1880, "Other": 1650 },
+                monthlySeries: [
+                    120,135,155,165,220,270,295,280,240,195,150,125,
+                    135,145,165,180,235,285,310,295,255,205,160,135,
+                    145,155,175,195,250,300,325,310,270,220,170,145,
+                    160,170,190,210,270,320,345,330,285,235,185,160,
+                    175,185,210,225,290,345,370,350,305,250,200,175,
+                    195,205,230,250,315,375,400,380,330,275,220,190,
+                    210,220,250,275,345,405,430,410,360,295,240,210,
+                    230,240,275,300,375,440,470,445,390,320,260,230,
+                    255,265,300,325,405,475,505,480,420,345,280,250
+                ],
+                zips: [
+                    { zip: "11385", lat: 40.7015, lng: -73.8993, name: "Ridgewood, QN", count: 2840 }
+                ],
+                samplePins: [
+                    { id: "311-9655", lat: 40.7420, lng: -73.8820, borough: "Queens", address: "82-10 Roosevelt Ave, Queens, NY", location: "Restaurant/Store", date: "2018-08-05", status: "Closed" }
+                ]
+            },
+            "BRONX": {
+                total: 18240,
+                topBorough: "Bronx",
+                topBoroughPct: "100%",
+                closedPct: "94.0%",
+                avgDays: "10.2",
+                boroughDist: { "Brooklyn": 0, "Manhattan": 0, "Queens": 0, "Bronx": 18240, "Staten Island": 0 },
+                locationDist: { "3+ Fam Apt": 10210, "1-2 Fam Dwelling": 3100, "Commercial Bldg": 1010, "Vacant Lot": 2110, "Other": 1810 },
+                monthlySeries: [
+                    95,105,120,130,175,215,230,220,190,150,115,95,
+                    105,115,130,140,185,225,245,235,200,160,125,105,
+                    115,125,140,155,200,240,255,245,210,170,135,115,
+                    125,135,150,165,215,255,270,260,225,185,145,125,
+                    140,150,165,180,230,270,290,275,240,195,155,135,
+                    155,165,180,200,250,295,315,300,260,210,170,150,
+                    170,175,200,215,275,320,340,325,285,230,185,160,
+                    185,195,220,235,300,350,370,355,310,250,205,180,
+                    200,210,235,255,325,380,400,385,335,270,220,195
+                ],
+                zips: [
+                    { zip: "10456", lat: 40.8291, lng: -73.9083, name: "Morrisania, BX", count: 3120 }
+                ],
+                samplePins: [
+                    { id: "311-9410", lat: 40.8310, lng: -73.9211, borough: "Bronx", address: "1150 Grand Concourse, Bronx, NY", location: "3+ Family Apt Building", date: "2018-07-19", status: "In Progress" }
+                ]
+            },
+            "STATEN ISLAND": {
+                total: 3634,
+                topBorough: "Staten Island",
+                topBoroughPct: "100%",
+                closedPct: "97.5%",
+                avgDays: "5.2",
+                boroughDist: { "Brooklyn": 0, "Manhattan": 0, "Queens": 0, "Bronx": 0, "Staten Island": 3634 },
+                locationDist: { "3+ Fam Apt": 950, "1-2 Fam Dwelling": 1490, "Commercial Bldg": 120, "Vacant Lot": 620, "Other": 454 },
+                monthlySeries: [
+                    15,18,22,25,35,45,48,45,38,30,22,18,
+                    18,20,24,28,38,48,52,48,40,32,24,20,
+                    20,22,26,30,41,51,55,52,43,35,26,22,
+                    22,25,29,33,44,55,59,56,46,37,28,24,
+                    25,28,32,37,48,59,64,61,50,40,31,27,
+                    28,30,35,40,52,64,69,65,55,44,34,30,
+                    31,34,39,44,57,69,74,70,59,47,37,32,
+                    34,37,42,48,62,75,80,75,64,51,40,35,
+                    37,40,46,52,67,80,86,81,69,55,43,38
+                ],
+                zips: [
+                    { zip: "10301", lat: 40.6312, lng: -74.0934, name: "St George, SI", count: 1120 }
+                ],
+                samplePins: [
+                    { id: "311-9801", lat: 40.6401, lng: -74.0760, borough: "Staten Island", address: "120 Victory Blvd, Staten Island, NY", location: "1-2 Family Dwelling", date: "2018-08-12", status: "Closed" }
+                ]
+            }
+        };
+
+        const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const YEARS = [2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018];
+
+        /* ==========================================================================
+           2. GLOBAL STATE & CHARTS INITIALIZATION
+           ========================================================================== */
+        let currentBorough = "ALL";
+        let currentTab = "summary";
+        let mapViewMode = "zip"; // 'zip' or 'pins'
+
+        let boroughChartInstance = null;
+        let locationChartInstance = null;
+        let trendChartInstance = null;
+        let leafletMap = null;
+        let mapLayerGroup = null;
+
+        // Initialize on DOM load
+        window.onload = function() {
+            renderDashboard();
+        };
+
+        function switchTab(tabId) {
+            currentTab = tabId;
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('tab-active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.add('text-slate-400'));
+            
+            const activeBtn = document.getElementById(`tabBtn-${tabId}`);
+            activeBtn.classList.add('tab-active');
+            activeBtn.classList.remove('text-slate-400');
+
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+
+            if (tabId === 'map') {
+                setTimeout(() => {
+                    if (!leafletMap) {
+                        initMap();
+                    } else {
+                        leafletMap.invalidateSize();
+                    }
+                    updateMapData();
+                }, 150);
+            }
+        }
+
+        function onBoroughChange() {
+            currentBorough = document.getElementById('boroughSelect').value;
+            renderDashboard();
+        }
+
+        function renderDashboard() {
+            const data = DB[currentBorough];
+
+            // 1. Update Stat Cards
+            document.getElementById('stat-total').innerText = data.total.toLocaleString();
+            document.getElementById('stat-top-borough').innerText = data.topBorough;
+            document.getElementById('stat-top-borough-sub').innerText = data.topBoroughPct + " of region sightings";
+            document.getElementById('stat-closed-pct').innerText = data.closedPct;
+            document.getElementById('stat-avg-days').innerText = data.avgDays + " Days";
+
+            // 2. Render Charts
+            renderBoroughChart(data.boroughDist);
+            renderLocationChart(data.locationDist);
+            renderTrendChart(data.monthlySeries);
+            renderHeatmap(data.monthlySeries);
+
+            // 3. Update Map if ready
+            if (leafletMap) {
+                updateMapData();
+            }
+        }
+
+        /* ==========================================================================
+           3. CHART.JS GRAPHICAL RENDERING
+           ========================================================================== */
+        function renderBoroughChart(dist) {
+            const ctx = document.getElementById('boroughChart').getContext('2d');
+            const labels = Object.keys(dist);
+            const values = Object.values(dist);
+
+            if (boroughChartInstance) boroughChartInstance.destroy();
+
+            boroughChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Sightings',
+                        data: values,
+                        backgroundColor: [
+                            'rgba(245, 158, 11, 0.85)',
+                            'rgba(239, 68, 68, 0.85)',
+                            'rgba(14, 165, 233, 0.85)',
+                            'rgba(16, 185, 129, 0.85)',
+                            'rgba(168, 85, 247, 0.85)'
+                        ],
+                        borderRadius: 6,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ` ${ctx.raw.toLocaleString()} Sightings`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8' } },
+                        y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+                    }
+                }
+            });
+        }
+
+        function renderLocationChart(dist) {
+            const ctx = document.getElementById('locationChart').getContext('2d');
+            const labels = Object.keys(dist);
+            const values = Object.values(dist);
+
+            if (locationChartInstance) locationChartInstance.destroy();
+
+            locationChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: [
+                            '#f59e0b',
+                            '#ef4444',
+                            '#3b82f6',
+                            '#10b981',
+                            '#8b5cf6'
+                        ],
+                        borderWidth: 2,
+                        borderColor: '#1e293b'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: '#cbd5e1', font: { size: 11 }, boxWidth: 12 }
+                        }
+                    },
+                    cutout: '65%'
+                }
+            });
+        }
+
+        /* Linear Regression Analysis */
+        function calculateLinearRegression(ySeries) {
+            const n = ySeries.length;
+            let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+
+            for (let i = 0; i < n; i++) {
+                sumX += i;
+                sumY += ySeries[i];
+                sumXY += i * ySeries[i];
+                sumXX += i * i;
+            }
+
+            const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+            const intercept = (sumY - slope * sumX) / n;
+
+            // Generate trendline points for historical + 12 forecast months
+            const trendPoints = [];
+            const forecastLength = n + 12; // Extend 1 year into 2019
+            for (let i = 0; i < forecastLength; i++) {
+                trendPoints.push(Math.round(slope * i + intercept));
+            }
+
+            return { slope, intercept, trendPoints };
+        }
+
+        function renderTrendChart(series) {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+
+            // Generate Labels for 2010-2018 + 2019 Forecast
+            const labels = [];
+            YEARS.forEach(y => {
+                MONTH_NAMES.forEach(m => labels.push(`${m} ${y}`));
+            });
+            // Add 2019 forecast labels
+            MONTH_NAMES.forEach(m => labels.push(`${m} 2019 (F)`));
+
+            const reg = calculateLinearRegression(series);
+
+            // Slope KPI Update
+            const slopeFormatted = (reg.slope >= 0 ? "+" : "") + reg.slope.toFixed(1) + " /mo";
+            document.getElementById('trend-slope-text').innerText = slopeFormatted;
+
+            if (trendChartInstance) trendChartInstance.destroy();
+
+            trendChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Actual Monthly Sightings',
+                            data: series, // stops at end of 2018
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 1.5,
+                            borderWidth: 2
+                        },
+                        {
+                            label: 'Linear Regression Forecast',
+                            data: reg.trendPoints,
+                            borderColor: '#ef4444',
+                            borderDash: [6, 6],
+                            fill: false,
+                            pointRadius: 0,
+                            borderWidth: 2.5
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#cbd5e1', font: { size: 12 } }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: '#1e293b' },
+                            ticks: { color: '#94a3b8', maxTicksLimit: 12 }
+                        },
+                        y: {
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+        }
+
+        /* ==========================================================================
+           4. SEASONAL HEATMAP MATRIX GRID
+           ========================================================================== */
+        function renderHeatmap(series) {
+            const tbody = document.getElementById('heatmap-body');
+            tbody.innerHTML = '';
+
+            // Reshape 108 values array into 12x9 matrix
+            let maxVal = Math.max(...series);
+            let minVal = Math.min(...series);
+
+            for (let m = 0; m < 12; m++) {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-800/40";
+                
+                let monthTd = `<td class="p-2 text-left font-semibold text-slate-300 border-r border-slate-800">${MONTH_NAMES[m]}</td>`;
+                tr.innerHTML = monthTd;
+
+                for (let y = 0; y < YEARS.length; y++) {
+                    const idx = y * 12 + m;
+                    const val = series[idx];
+                    
+                    // Normalize for dynamic heat color scaling
+                    const norm = (val - minVal) / (maxVal - minVal || 1);
+                    
+                    let bgColor = '#451a03'; // lowest
+                    let textColor = '#fcd34d';
+
+                    if (norm > 0.8) { bgColor = '#dc2626'; textColor = '#ffffff'; }
+                    else if (norm > 0.6) { bgColor = '#f59e0b'; textColor = '#0f172a'; }
+                    else if (norm > 0.4) { bgColor = '#d97706'; textColor = '#ffffff'; }
+                    else if (norm > 0.2) { bgColor = '#92400e'; textColor = '#fef3c7'; }
+
+                    const td = document.createElement('td');
+                    td.className = "p-2 font-medium hm-cell rounded cursor-default border border-slate-900/60";
+                    td.style.backgroundColor = bgColor;
+                    td.style.color = textColor;
+                    td.innerText = val.toLocaleString();
+                    td.title = `${MONTH_NAMES[m]} ${YEARS[y]}: ${val.toLocaleString()} sightings`;
+
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            }
+        }
+
+        /* ==========================================================================
+           5. LEAFLET INTERACTIVE MAP SYSTEM
+           ========================================================================== */
+        function initMap() {
+            // Centered on NYC
+            leafletMap = L.map('map', {
+                center: [40.7128, -74.0060],
+                zoom: 11,
+                zoomControl: true
+            });
+
+            // Esri World Dark Gray Canvas Basemap & Labels
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+                maxZoom: 16
+            }).addTo(leafletMap);
+
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+                attribution: '',
+                maxZoom: 16
+            }).addTo(leafletMap);
+
+            mapLayerGroup = L.layerGroup().addTo(leafletMap);
+            updateMapData();
+        }
+
+        function setMapViewMode(mode) {
+            mapViewMode = mode;
+            const zipBtn = document.getElementById('btn-map-zip');
+            const pinsBtn = document.getElementById('btn-map-pins');
+
+            if (mode === 'zip') {
+                zipBtn.className = "px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-500 text-slate-950 shadow transition-all";
+                pinsBtn.className = "px-3 py-1.5 text-xs font-semibold rounded-md text-slate-400 hover:text-white transition-all";
+            } else {
+                pinsBtn.className = "px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-500 text-slate-950 shadow transition-all";
+                zipBtn.className = "px-3 py-1.5 text-xs font-semibold rounded-md text-slate-400 hover:text-white transition-all";
+            }
+            updateMapData();
+        }
+
+        function updateMapData() {
+            if (!leafletMap || !mapLayerGroup) return;
+
+            mapLayerGroup.clearLayers();
+            const data = DB[currentBorough];
+
+            if (mapViewMode === 'zip') {
+                // Render Zip Code Density Circle Overlays
+                data.zips.forEach(z => {
+                    const radius = Math.sqrt(z.count) * 45;
+                    const circle = L.circle([z.lat, z.lng], {
+                        color: '#f59e0b',
+                        fillColor: '#d97706',
+                        fillOpacity: 0.5,
+                        radius: radius
+                    });
+
+                    const popupHtml = `
+                        <div class="p-1">
+                            <h4 class="font-bold text-amber-400 text-sm">${z.name} (Zip ${z.zip})</h4>
+                            <p class="text-xs text-slate-300 mt-1">Total Sightings: <strong class="text-white">${z.count.toLocaleString()}</strong></p>
+                            <span class="inline-block mt-2 text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">High Density Cluster</span>
+                        </div>
+                    `;
+                    circle.bindPopup(popupHtml);
+                    mapLayerGroup.addLayer(circle);
+                });
+            } else {
+                // Render Individual Interactive Sample Pins
+                data.samplePins.forEach(pin => {
+                    const marker = L.circleMarker([pin.lat, pin.lng], {
+                        radius: 8,
+                        color: '#ef4444',
+                        fillColor: '#dc2626',
+                        fillOpacity: 0.9
+                    });
+
+                    const popupContent = `
+                        <div class="p-1">
+                            <div class="flex items-center justify-between gap-2 border-b border-slate-700 pb-1 mb-1">
+                                <span class="font-bold text-amber-400 text-xs">ID: ${pin.id}</span>
+                                <span class="text-[10px] bg-slate-800 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30">${pin.status}</span>
+                            </div>
+                            <p class="text-xs font-medium text-white">${pin.address}</p>
+                            <p class="text-xs text-slate-400 mt-1"><i class="fa-solid fa-building text-amber-500/80 mr-1"></i> Location: ${pin.location}</p>
+                            <p class="text-[11px] text-slate-400 mt-0.5"><i class="fa-solid fa-calendar-day text-slate-400 mr-1"></i> Reported: ${pin.date}</p>
+                        </div>
+                    `;
+                    marker.bindPopup(popupContent);
+                    mapLayerGroup.addLayer(marker);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
